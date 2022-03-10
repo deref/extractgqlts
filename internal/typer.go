@@ -6,8 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
+	"github.com/vektah/gqlparser/v2/parser"
+	"github.com/vektah/gqlparser/v2/validator"
 )
 
 type Typer struct {
@@ -20,6 +21,7 @@ type Typer struct {
 }
 
 type GeneratedTypes struct {
+	Scalars      []string
 	QueryMap     []QueryType
 	Declarations []string
 }
@@ -29,10 +31,42 @@ type QueryType struct {
 	Type  string
 }
 
+func (t *Typer) loadQuery(gql string) (*ast.QueryDocument, error) {
+	doc, err := parser.ParseQuery(&ast.Source{Input: gql})
+	if err != nil {
+		return nil, err
+	}
+
+	errs := validator.Validate(t.Schema, doc)
+	dst := 0
+	for i := 0; i < len(errs); i++ {
+		err := errs[i]
+		if ignoreError(err) {
+			continue
+		}
+		errs[dst] = err
+		dst++
+	}
+	errs = errs[:dst]
+	if len(errs) > 0 {
+		return nil, errs
+	}
+	return doc, nil
+}
+
+func ignoreError(err error) bool {
+	switch {
+	case strings.HasSuffix(err.Error(), "is never used."):
+		return true
+	default:
+		return false
+	}
+}
+
 func (t *Typer) VisitString(gql string) (string, error) {
-	doc, gqlErrs := gqlparser.LoadQuery(t.Schema, gql)
-	if len(gqlErrs) > 0 {
-		return "", fmt.Errorf("loading query: %w", gqlErrs)
+	doc, err := t.loadQuery(gql)
+	if err != nil {
+		return "", fmt.Errorf("loading query: %w", err)
 	}
 	typ, err := t.visitDocument(doc)
 	if err != nil {
@@ -67,14 +101,42 @@ func (t *Typer) visitDocument(doc *ast.QueryDocument) (string, error) {
 }
 
 func (t *Typer) visitOperationDefinition(op *ast.OperationDefinition) string {
-	t.dataBuilder.Reset()
-	t.variables = make(map[string]string)
-
+	t.reset()
 	t.visitVariableDefinitions(op.VariableDefinitions)
 	t.visitSelectionSet(op.SelectionSet)
+	return t.buildDefDocType("Query", op.Name)
+}
 
+func (t *Typer) visitFragmentDefinition(op *ast.FragmentDefinition) string {
+	t.reset()
+	t.visitSelectionSet(op.SelectionSet)
+	return t.buildDefDocType("Fragment", op.Name)
+}
+
+func (t *Typer) reset() {
+	t.dataBuilder.Reset()
+	t.variables = make(map[string]string)
+}
+
+func (t *Typer) buildDefDocType(prefix string, name string) string {
+	typ := t.buildDocType()
+
+	if name == "" {
+		return typ
+	}
+
+	typeName := prefix + "_" + name
+	t.Declarations = append(t.Declarations, fmt.Sprintf("type %s = %s;", typeName, typ))
+	return typeName
+}
+
+func (t *Typer) buildDocType() string {
 	data := t.dataBuilder.String()
+	variables := t.buildVariables()
+	return fmt.Sprintf("{ data: %s; variables: %s; }", data, variables)
+}
 
+func (t *Typer) buildVariables() string {
 	variableNames := make([]string, 0, len(t.variables))
 	for variableName := range t.variables {
 		variableNames = append(variableNames, variableName)
@@ -87,21 +149,7 @@ func (t *Typer) visitOperationDefinition(op *ast.OperationDefinition) string {
 		fmt.Fprintf(&variablesBuilder, "%s: %s; ", name, typ)
 	}
 	variablesBuilder.WriteString("}")
-	variables := variablesBuilder.String()
-
-	typ := fmt.Sprintf("{ data: %s; variables: %s; }", data, variables)
-
-	if op.Name == "" {
-		return typ
-	}
-
-	typeName := "Query_" + op.Name
-	t.Declarations = append(t.Declarations, fmt.Sprintf("type %s = %s;", typeName, typ))
-	return typeName
-}
-
-func (t *Typer) visitFragmentDefinition(op *ast.FragmentDefinition) string {
-	panic("TODO: Fragments")
+	return variablesBuilder.String()
 }
 
 func (t *Typer) visitVariableDefinitions(vars ast.VariableDefinitionList) {
@@ -169,12 +217,14 @@ func (t *Typer) visitInlineFragment(node *ast.InlineFragment) {
 func (t *Typer) visitTypeRef(typ *ast.Type) string {
 	name := typ.Name()
 	switch name {
-	case "String":
+	case "String", "ID":
 		name = "string"
 	case "Boolean":
 		name = "boolean"
+	case "Int", "Float":
+		name = "number"
 	default:
-		/* no-op */
+		t.Scalars = append(t.Scalars, name)
 	}
 	if !typ.NonNull {
 		name = fmt.Sprintf("(%s | null)", name)

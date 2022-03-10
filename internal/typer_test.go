@@ -26,7 +26,8 @@ func TestTyper(t *testing.T) {
 			type Query {
 				hello: String!
 				
-				user(id: String!): User
+				userById(id: String!): User
+				currentUser: User
 			}
 			
 			type User {
@@ -56,17 +57,32 @@ func TestTyper(t *testing.T) {
 			},
 		},
 		{
-			Input:        `query GetUser($userId: String!) { user(id: $userId) { name, bio: profile } }`,
+			Input:        `query GetUser($userId: String!) { user: userById(id: $userId) { name, bio: profile } }`,
 			ExpectedType: "Query_GetUser",
 			ExpectedDeclarations: GeneratedTypes{
 				QueryMap: []QueryType{
 					{
-						Query: `query GetUser($userId: String!) { user(id: $userId) { name, bio: profile } }`,
+						Query: `query GetUser($userId: String!) { user: userById(id: $userId) { name, bio: profile } }`,
 						Type:  `Query_GetUser`,
 					},
 				},
 				Declarations: []string{
 					"type Query_GetUser = { data: { user: { name: string; bio: (string | null); }; }; variables: { userId: string; }; };",
+				},
+			},
+		},
+		{
+			Input:        `fragment User on User { name, profile }`,
+			ExpectedType: "Fragment_User",
+			ExpectedDeclarations: GeneratedTypes{
+				QueryMap: []QueryType{
+					{
+						Query: `fragment User on User { name, profile }`,
+						Type:  `Fragment_User`,
+					},
+				},
+				Declarations: []string{
+					"type Fragment_User = { data: { name: string; profile: (string | null); }; variables: { }; };",
 				},
 			},
 		},
