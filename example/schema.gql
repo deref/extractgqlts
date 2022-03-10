@@ -1,0 +1,6 @@
+type Query {
+  hello: String
+  now: Date
+}
+
+scalar Date
