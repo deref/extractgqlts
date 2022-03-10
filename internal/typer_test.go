@@ -28,12 +28,16 @@ func TestTyper(t *testing.T) {
 				
 				userById(id: String!): User
 				currentUser: User
+				
+				now: Instant!
 			}
 			
 			type User {
 				name: String!
 				profile: String
 			}
+			
+			scalar Instant
 		`,
 	})
 	// NOTE: These tests are not at all forgiving of whitespace, optional
@@ -83,6 +87,24 @@ func TestTyper(t *testing.T) {
 				},
 				Declarations: []string{
 					"type Fragment_User = { data: { name: string; profile: (string | null); }; variables: { }; };",
+				},
+			},
+		},
+		{
+			Input:        `query Clock { now }`,
+			ExpectedType: `Query_Clock`,
+			ExpectedDeclarations: GeneratedTypes{
+				Scalars: []string{
+					"Instant",
+				},
+				QueryMap: []QueryType{
+					{
+						Query: `query Clock { now }`,
+						Type:  `Query_Clock`,
+					},
+				},
+				Declarations: []string{
+					"type Query_Clock = { data: { now: Instant; }; variables: { }; };",
 				},
 			},
 		},
