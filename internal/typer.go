@@ -110,13 +110,13 @@ func (t *Typer) visitDocument(doc *ast.QueryDocument) (string, error) {
 func (t *Typer) visitOperationDefinition(op *ast.OperationDefinition) string {
 	t.reset()
 	t.visitVariableDefinitions(op.VariableDefinitions)
-	t.visitSelectionSet(op.SelectionSet)
+	t.visitSelectionSet("Query", op.SelectionSet)
 	return t.buildDefDocType("Query", op.Name)
 }
 
 func (t *Typer) visitFragmentDefinition(op *ast.FragmentDefinition) string {
 	t.reset()
-	t.visitSelectionSet(op.SelectionSet)
+	t.visitSelectionSet(op.TypeCondition, op.SelectionSet)
 	return t.buildDefDocType("Fragment", op.Name)
 }
 
@@ -172,11 +172,18 @@ func (t *Typer) visitVariableDefinition(def *ast.VariableDefinition) {
 	t.variables[name] = t.visitTypeRef(def.Type)
 }
 
-func (t *Typer) visitSelectionSet(selections ast.SelectionSet) {
+func (t *Typer) visitSelectionSet(typeCondition string, selections ast.SelectionSet) {
 	t.dataBuilder.WriteString("{")
+
+	typ := t.Schema.Types[typeCondition]
+	if typ != nil && typ.Kind == ast.Object {
+		fmt.Fprintf(&t.dataBuilder, " __typename: %s;", stringToJSON(typ.Name))
+	}
+
 	for _, selection := range selections {
 		t.visitSelection(selection)
 	}
+
 	t.dataBuilder.WriteString(" }")
 }
 
@@ -206,7 +213,7 @@ func (t *Typer) visitField(node *ast.Field) {
 	if node.SelectionSet == nil {
 		t.dataBuilder.WriteString(t.visitTypeRef(def.Type))
 	} else {
-		t.visitSelectionSet(node.SelectionSet)
+		t.visitSelectionSet(def.Type.NamedType, node.SelectionSet)
 	}
 	t.dataBuilder.WriteString(";")
 }
@@ -222,9 +229,9 @@ func (t *Typer) visitInlineFragment(node *ast.InlineFragment) {
 func (t *Typer) visitFragment(object *ast.Definition, selections ast.SelectionSet) {
 	typ := object.Name
 	t.dataBuilder.WriteString("} & ({ __typename: string } | { __typename: ")
-	t.dataBuilder.WriteString(encodeString(typ))
+	t.dataBuilder.WriteString(stringToJSON(typ))
 	t.dataBuilder.WriteString("; ")
-	t.visitSelectionSet(selections)
+	t.visitSelectionSet(object.Name, selections)
 	t.dataBuilder.WriteString("})")
 }
 

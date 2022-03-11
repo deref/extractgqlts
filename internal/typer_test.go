@@ -63,12 +63,12 @@ func TestTyper(t *testing.T) {
 	}{
 		{
 			Input:        `{ hello }`,
-			ExpectedRoot: `{ data: { hello: string; }; variables: { }; }`,
+			ExpectedRoot: `{ data: { __typename: "Query"; hello: string; }; variables: { }; }`,
 			ExpectedDeclarations: GeneratedTypes{
 				QueryMap: []QueryType{
 					{
 						Query: `{ hello }`,
-						Type:  `{ data: { hello: string; }; variables: { }; }`,
+						Type:  `{ data: { __typename: "Query"; hello: string; }; variables: { }; }`,
 					},
 				},
 			},
@@ -84,7 +84,7 @@ func TestTyper(t *testing.T) {
 					},
 				},
 				Declarations: []string{
-					`export type Query_GetUser_Data = { user: { name: string; bio: (string | null); }; };`,
+					`export type Query_GetUser_Data = { __typename: "Query"; user: { __typename: "User"; name: string; bio: (string | null); }; };`,
 					`export type Query_GetUser_Variables = { userId: string; };`,
 				},
 			},
@@ -100,7 +100,7 @@ func TestTyper(t *testing.T) {
 					},
 				},
 				Declarations: []string{
-					`export type Fragment_User_Data = { name: string; profile: (string | null); };`,
+					`export type Fragment_User_Data = { __typename: "User"; name: string; profile: (string | null); };`,
 					`export type Fragment_User_Variables = { };`,
 				},
 			},
@@ -119,7 +119,7 @@ func TestTyper(t *testing.T) {
 					},
 				},
 				Declarations: []string{
-					`export type Query_Clock_Data = { now: Instant; };`,
+					`export type Query_Clock_Data = { __typename: "Query"; now: Instant; };`,
 					`export type Query_Clock_Variables = { };`,
 				},
 			},
@@ -129,7 +129,7 @@ func TestTyper(t *testing.T) {
 		//query Fred { named(name: "fred") { ...Named, ... on Pet { species } } }
 		//fragment Named on Named { name }
 		//`,
-		//			ExpectedType: `Query_Fred`,
+		//			ExpectedRoot: `{ data: Query_Fred_Data; variables: Query_Fred_Variables; }`,
 		//			ExpectedDeclarations: GeneratedTypes{
 		//				QueryMap: []QueryType{
 		//					{
@@ -141,8 +141,8 @@ func TestTyper(t *testing.T) {
 		//					},
 		//				},
 		//				Declarations: []string{
-		//					`export type Fragment_Named = { data: { name: string; } & ({ __typename: string } | {__typename: "Dog", species: string }); variables: { }; };`,
-		//					`export type Query_Fred = { data: { name: string; } & ({ __typename: string } | {__typename: "Dog", species: string }); variables: { }; };`,
+		//					`export type Fragment_Named_Data = { data: { name: string; } & ({ __typename: string } | {__typename: "Dog"; species: string }); variables: { }; };`,
+		//					`export type Query_Fred = { data: { name: string; } & ({ __typename: string } | {__typename: "Dog"; species: string }); variables: { }; };`,
 		//				},
 		//			},
 		//		},
@@ -152,7 +152,7 @@ func TestTyper(t *testing.T) {
 			Schema: schema,
 		}
 		actualRoot, err := typer.VisitString(test.Input)
-		if !assert.NoError(t, err) {
+		if !assert.NoError(t, err, "input: %s", test.Input) {
 			continue
 		}
 		if err != nil {
