@@ -173,18 +173,24 @@ func (t *Typer) visitVariableDefinition(def *ast.VariableDefinition) {
 }
 
 func (t *Typer) visitSelectionSet(typeCondition string, selections ast.SelectionSet) {
-	t.dataBuilder.WriteString("{")
-
-	typ := t.Schema.Types[typeCondition]
-	if typ != nil && typ.Kind == ast.Object {
-		fmt.Fprintf(&t.dataBuilder, " __typename: %s;", stringToJSON(typ.Name))
-	}
+	t.dataBuilder.WriteString("{ __typename: ")
+	t.dataBuilder.WriteString(t.concreteTypename(typeCondition))
+	t.dataBuilder.WriteString("; ")
 
 	for _, selection := range selections {
 		t.visitSelection(selection)
 	}
 
-	t.dataBuilder.WriteString(" }")
+	t.dataBuilder.WriteString("}")
+}
+
+func (t *Typer) concreteTypename(name string) string {
+	typ := t.Schema.Types[name]
+	if typ != nil && typ.Kind == ast.Object {
+		return stringToJSON(typ.Name)
+	} else {
+		return "string"
+	}
 }
 
 func (t *Typer) visitSelection(node ast.Selection) {
@@ -207,7 +213,6 @@ func (t *Typer) visitField(node *ast.Field) {
 	if alias == "" {
 		alias = node.Name
 	}
-	t.dataBuilder.WriteString(" ")
 	t.dataBuilder.WriteString(alias)
 	t.dataBuilder.WriteString(": ")
 	if node.SelectionSet == nil {
@@ -215,11 +220,15 @@ func (t *Typer) visitField(node *ast.Field) {
 	} else {
 		t.visitSelectionSet(def.Type.NamedType, node.SelectionSet)
 	}
-	t.dataBuilder.WriteString(";")
+	t.dataBuilder.WriteString("; ")
 }
 
 func (t *Typer) visitFragmentSpread(node *ast.FragmentSpread) {
-	t.visitFragment(node.ObjectDefinition, node.Definition.SelectionSet)
+	if node.Name == "" {
+		t.visitFragment(node.ObjectDefinition, node.Definition.SelectionSet)
+	} else {
+		fmt.Fprintf(&t.dataBuilder, "Fragment_%s_Data", node.Name)
+	}
 }
 
 func (t *Typer) visitInlineFragment(node *ast.InlineFragment) {
@@ -228,8 +237,8 @@ func (t *Typer) visitInlineFragment(node *ast.InlineFragment) {
 
 func (t *Typer) visitFragment(object *ast.Definition, selections ast.SelectionSet) {
 	typ := object.Name
-	t.dataBuilder.WriteString("} & ({ __typename: string } | { __typename: ")
-	t.dataBuilder.WriteString(stringToJSON(typ))
+	t.dataBuilder.WriteString(" } & ({ __typename: string } | { __typename: ")
+	t.dataBuilder.WriteString(t.concreteTypename(typ))
 	t.dataBuilder.WriteString("; ")
 	t.visitSelectionSet(object.Name, selections)
 	t.dataBuilder.WriteString("})")

@@ -53,14 +53,13 @@ func TestTyper(t *testing.T) {
 			}
 		`,
 	})
-	// NOTE: These tests are not at all forgiving of whitespace, optional
-	// semicolons, etc.  If the generated output conflicts with this, either make
-	// the assertions less strict, or update the expected values to match.
+	// NOTE: These are essentially gold-file tests and therefore are brittle.
 	tests := []struct {
 		Input                string
 		ExpectedRoot         string
 		ExpectedDeclarations GeneratedTypes
 	}{
+		// Simplest declaration.
 		{
 			Input:        `{ hello }`,
 			ExpectedRoot: `{ data: { __typename: "Query"; hello: string; }; variables: { }; }`,
@@ -73,6 +72,7 @@ func TestTyper(t *testing.T) {
 				},
 			},
 		},
+		// Variables, aliases, optionals.
 		{
 			Input:        `query GetUser($userId: String!) { user: userById(id: $userId) { name, bio: profile } }`,
 			ExpectedRoot: `{ data: Query_GetUser_Data; variables: Query_GetUser_Variables; }`,
@@ -89,6 +89,7 @@ func TestTyper(t *testing.T) {
 				},
 			},
 		},
+		// Fragment declaration.
 		{
 			Input:        `fragment User on User { name, profile }`,
 			ExpectedRoot: `{ data: Fragment_User_Data; variables: Fragment_User_Variables; }`,
@@ -105,6 +106,7 @@ func TestTyper(t *testing.T) {
 				},
 			},
 		},
+		// Custom scalar.
 		{
 			Input:        `query Clock { now }`,
 			ExpectedRoot: `{ data: Query_Clock_Data; variables: Query_Clock_Variables; }`,
@@ -124,28 +126,32 @@ func TestTyper(t *testing.T) {
 				},
 			},
 		},
-		//		{
-		//			Input: `
-		//query Fred { named(name: "fred") { ...Named, ... on Pet { species } } }
-		//fragment Named on Named { name }
-		//`,
-		//			ExpectedRoot: `{ data: Query_Fred_Data; variables: Query_Fred_Variables; }`,
-		//			ExpectedDeclarations: GeneratedTypes{
-		//				QueryMap: []QueryType{
-		//					{
-		//						Query: `
-		//query Fred { named(name: "fred") { ...Named, ... on Pet { species } } }
-		//fragment Named on Named { name }
-		//`,
-		//						Type: `Query_Fred`,
-		//					},
-		//				},
-		//				Declarations: []string{
-		//					`export type Fragment_Named_Data = { data: { name: string; } & ({ __typename: string } | {__typename: "Dog"; species: string }); variables: { }; };`,
-		//					`export type Query_Fred = { data: { name: string; } & ({ __typename: string } | {__typename: "Dog"; species: string }); variables: { }; };`,
-		//				},
-		//			},
-		//		},
+		// Named and anonymous fragment spreads.
+		{
+			Input: `
+query Fred { named(name: "fred") { ...Named, ... on Pet { species } } }
+fragment Named on Named { name }
+`,
+			ExpectedRoot: `{ data: Query_Fred_Data; variables: Query_Fred_Variables; }`,
+			ExpectedDeclarations: GeneratedTypes{
+				QueryMap: []QueryType{
+					{
+						Query: `
+query Fred { named(name: "fred") { ...Named, ... on Pet { species } } }
+fragment Named on Named { name }
+`,
+						Type: `{ data: Query_Fred_Data; variables: Query_Fred_Variables; }`,
+					},
+				},
+				Declarations: []string{
+					`export type Fragment_Named_Data = { __typename: string; name: string; };`,
+					`export type Fragment_Named_Variables = { };`,
+					`export type Query_Fred_Data = { __typename: "Query", named: { Fragment_Named_Data & ({ __typename: string } | {__typename: "Pet"; species: string }); }; };`,
+					`export type Query_Fred_Variables = { };`,
+				},
+			},
+		},
+		// TODO: Unions; should produce union for __typename.
 	}
 	for _, test := range tests {
 		typer := &Typer{
