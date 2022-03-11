@@ -84,7 +84,7 @@ func TestTyper(t *testing.T) {
 					},
 				},
 				Declarations: []string{
-					`export type Query_GetUser_Data = { __typename: "Query"; user: { __typename: "User"; name: string; bio: (string | null); }; };`,
+					`export type Query_GetUser_Data = { __typename: "Query"; user: { __typename: "User"; bio: (string | null); name: string; }; };`,
 					`export type Query_GetUser_Variables = { userId: string; };`,
 				},
 			},
@@ -144,14 +144,16 @@ fragment Named on Named { name }
 					},
 				},
 				Declarations: []string{
-					`export type Fragment_Named_Data = { __typename: string; name: string; };`,
+					`export type Fragment_Named_Data = { __typename: "Pet" | "User"; name: string; };`,
 					`export type Fragment_Named_Variables = { };`,
-					`export type Query_Fred_Data = { __typename: "Query", named: { Fragment_Named_Data & ({ __typename: string } | {__typename: "Pet"; species: string }); }; };`,
+					// TODO: Is it possible to enhance the algorith to simplify this?
+					// Is it worth it? TypeScript should handle that for us.
+					`export type Query_Fred_Data = { __typename: "Query"; named: { __typename: "Pet"; species: string; } & Fragment_Named_Data | { __typename: "Pet" | "User"; species: string; } & Fragment_Named_Data; };`,
 					`export type Query_Fred_Variables = { };`,
 				},
 			},
 		},
-		// TODO: Unions; should produce union for __typename.
+		// TODO: Mutations & Subscriptions.
 	}
 	for _, test := range tests {
 		typer := &Typer{

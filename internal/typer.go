@@ -3,6 +3,7 @@ package internal
 import (
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -17,8 +18,80 @@ type Typer struct {
 
 	GeneratedTypes
 
-	dataBuilder strings.Builder
-	variables   map[string]string
+	*alternativesBuilder
+	variables map[string]string // name -> type.
+}
+
+type typeUnion struct {
+	canonical   string
+	definitions []*ast.Definition
+}
+
+func newTypeUnion(defs []*ast.Definition) typeUnion {
+	names := make([]string, len(defs))
+	for i, def := range defs {
+		names[i] = stringToJSON(def.Name)
+	}
+
+	return typeUnion{
+		definitions: defs,
+		canonical:   canonicalizeUnion(names),
+	}
+}
+
+func intersectUnions(a, b typeUnion) typeUnion {
+	seen := make(map[string]bool)
+	for _, def := range a.definitions {
+		seen[def.Name] = true
+	}
+	var common []*ast.Definition
+	for _, def := range b.definitions {
+		if seen[def.Name] {
+			common = append(common, def)
+		}
+	}
+	return newTypeUnion(common)
+}
+
+// Produce a canonicalized TypeScript union, suitable for use as Go map keys.
+func canonicalizeUnion(alternatives []string) string {
+	if len(alternatives) == 0 {
+		return "never"
+	}
+	sort.Strings(alternatives)
+	return strings.Join(alternatives, " | ")
+}
+
+type alternativesBuilder struct {
+	self         typeUnion                 // Current set of applicable concrete types.
+	fields       map[string]string         // alias -> type.
+	objects      map[string]*objectBuilder // concrete type name -> applicable
+	alternatives map[string]typeUnion      // Set of possible type unions. Keyed by canonical.
+}
+
+type objectBuilder struct {
+	fields    map[string]bool
+	fragments map[string]bool
+}
+
+func newAlternativesBuilder(self typeUnion) *alternativesBuilder {
+	b := &alternativesBuilder{
+		self:    self,
+		fields:  make(map[string]string),
+		objects: make(map[string]*objectBuilder),
+		alternatives: map[string]typeUnion{
+			self.canonical: self,
+		},
+	}
+	// The self constriant is only ever narrowed, so allocate builders for all
+	// the possible concrete types.
+	for _, def := range self.definitions {
+		b.objects[def.Name] = &objectBuilder{
+			fields:    make(map[string]bool),
+			fragments: make(map[string]bool),
+		}
+	}
+	return b
 }
 
 type GeneratedTypes struct {
@@ -107,41 +180,145 @@ func (t *Typer) visitDocument(doc *ast.QueryDocument) (string, error) {
 	}
 }
 
-func (t *Typer) visitOperationDefinition(op *ast.OperationDefinition) string {
-	t.reset()
-	t.visitVariableDefinitions(op.VariableDefinitions)
-	t.visitSelectionSet("Query", op.SelectionSet)
-	return t.buildDefDocType("Query", op.Name)
+func (t *Typer) visitOperationDefinition(def *ast.OperationDefinition) string {
+	var objectType *ast.Definition
+	var opKind string
+	switch def.Operation {
+	case ast.Query:
+		opKind = "Query"
+		objectType = t.Schema.Query
+	case ast.Mutation:
+		opKind = "Mutation"
+		objectType = t.Schema.Mutation
+	case ast.Subscription:
+		opKind = "Subscription"
+		objectType = t.Schema.Subscription
+	default:
+		panic(fmt.Errorf("unexpected kind of operation: %q", def.Operation))
+	}
+	end := t.startDefinition(opKind, def.Name, objectType)
+	t.visitVariableDefinitions(def.VariableDefinitions)
+	t.visitSelectionSet(def.SelectionSet)
+	return end()
 }
 
-func (t *Typer) visitFragmentDefinition(op *ast.FragmentDefinition) string {
-	t.reset()
-	t.visitSelectionSet(op.TypeCondition, op.SelectionSet)
-	return t.buildDefDocType("Fragment", op.Name)
+func (t *Typer) toConcreteUnion(def *ast.Definition) typeUnion {
+	switch def.Kind {
+	case ast.Object:
+		return newTypeUnion([]*ast.Definition{def})
+
+	case ast.Interface:
+		// TODO: This is be cacheable.
+		var defs []*ast.Definition
+		for _, candidate := range t.Schema.Types {
+			if candidate.Kind != ast.Object {
+				continue
+			}
+			for _, iface := range candidate.Interfaces {
+				if iface == def.Name {
+					defs = append(defs, candidate)
+					break
+				}
+			}
+		}
+		return newTypeUnion(defs)
+
+	case ast.Union:
+		defs := make([]*ast.Definition, len(def.Types))
+		for i, name := range def.Types {
+			defs[i] = t.getType(name)
+		}
+		return newTypeUnion(defs)
+
+	case ast.Scalar, ast.Enum, ast.InputObject:
+		panic(fmt.Errorf("expected only composite types, got %q", def.Kind))
+
+	default:
+		panic(fmt.Errorf("unknown kind: %q", def.Kind))
+	}
 }
 
-func (t *Typer) reset() {
-	t.dataBuilder.Reset()
+func (t *Typer) visitFragmentDefinition(op *ast.FragmentDefinition) (documentType string) {
+	objectType := t.getType(op.TypeCondition)
+	end := t.startDefinition("Fragment", op.Name, objectType)
+	t.visitSelectionSet(op.SelectionSet)
+	return end()
+}
+
+func (t *Typer) startDefinition(opKind, name string, objectType *ast.Definition) (end func() (documentType string)) {
 	t.variables = make(map[string]string)
+	endObject := t.startObject(objectType)
+	return func() (documentType string) {
+		dataType := endObject()
+		documentType = t.buildDocumentType(opKind, name, dataType)
+		t.variables = nil
+		return
+	}
 }
 
-func (t *Typer) buildDefDocType(prefix string, name string) string {
-	data := t.dataBuilder.String()
-	variables := t.buildVariables()
+func (t *Typer) startObject(typ *ast.Definition) (end func() (dataType string)) {
+	oldBuilder := t.alternativesBuilder
+
+	concreteTypes := t.toConcreteUnion(typ)
+	t.alternativesBuilder = newAlternativesBuilder(concreteTypes)
+
+	return func() string {
+		dataType := t.buildDataType()
+		t.alternativesBuilder = oldBuilder
+		return dataType
+	}
+}
+
+func (t *Typer) getType(name string) *ast.Definition {
+	return t.Schema.Types[name]
+}
+
+func (t *Typer) narrow(target *ast.Definition) (widen func()) {
+	old := t.self
+	u := intersectUnions(old, t.toConcreteUnion(target))
+	t.self = u
+	t.alternatives[u.canonical] = u
+	return func() {
+		t.self = old
+	}
+}
+
+func (t *Typer) buildDocumentType(prefix, name, dataType string) (documentType string) {
+	variablesType := t.buildVariablesType()
 
 	if name != "" {
 		t.Declarations = append(t.Declarations,
-			fmt.Sprintf("export type %s_%s_Data = %s;", prefix, name, data),
-			fmt.Sprintf("export type %s_%s_Variables = %s;", prefix, name, t.buildVariables()),
+			fmt.Sprintf("export type %s_%s_Data = %s;", prefix, name, dataType),
+			fmt.Sprintf("export type %s_%s_Variables = %s;", prefix, name, variablesType),
 		)
-		data = fmt.Sprintf("%s_%s_Data", prefix, name)
-		variables = fmt.Sprintf("%s_%s_Variables", prefix, name)
+		dataType = fmt.Sprintf("%s_%s_Data", prefix, name)
+		variablesType = fmt.Sprintf("%s_%s_Variables", prefix, name)
 	}
 
-	return fmt.Sprintf("{ data: %s; variables: %s; }", data, variables)
+	return fmt.Sprintf("{ data: %s; variables: %s; }", dataType, variablesType)
 }
 
-func (t *Typer) buildVariables() string {
+func (t *Typer) buildDataType() string {
+	if len(t.alternatives) == 0 {
+		return "/* buildDataType */ never"
+	}
+	typenameUnions := make([]string, 0, len(t.alternatives))
+	for key := range t.alternatives {
+		typenameUnions = append(typenameUnions, key)
+	}
+	sort.Strings(typenameUnions)
+
+	var b strings.Builder
+	sep := ""
+	for _, typenameUnion := range typenameUnions {
+		b.WriteString(sep)
+		sep = " | "
+		t.writeObject(&b, t.alternatives[typenameUnion])
+	}
+	return b.String()
+}
+
+func (t *Typer) buildVariablesType() string {
 	variableNames := make([]string, 0, len(t.variables))
 	for variableName := range t.variables {
 		variableNames = append(variableNames, variableName)
@@ -155,6 +332,42 @@ func (t *Typer) buildVariables() string {
 	}
 	variablesBuilder.WriteString("}")
 	return variablesBuilder.String()
+}
+
+func (t *Typer) writeObject(w io.Writer, types typeUnion) {
+	fieldSet := make(map[string]bool)
+	fragmentSet := make(map[string]bool)
+	var fieldAliases, fragmentNames []string
+
+	for _, def := range types.definitions {
+		obj := t.objects[def.Name]
+		for fieldAlias := range obj.fields {
+			if fieldSet[fieldAlias] {
+				continue
+			}
+			fieldSet[fieldAlias] = true
+			fieldAliases = append(fieldAliases, fieldAlias)
+		}
+		for fragmentName := range obj.fragments {
+			if fragmentSet[fragmentName] {
+				continue
+			}
+			fragmentSet[fragmentName] = true
+			fragmentNames = append(fragmentNames, fragmentName)
+		}
+	}
+	sort.Strings(fieldAliases)
+	sort.Strings(fragmentNames)
+
+	fmt.Fprintf(w, "{ __typename: %s; ", types.canonical)
+	for _, name := range fieldAliases {
+		typ := t.fields[name]
+		fmt.Fprintf(w, "%s: %s; ", name, typ)
+	}
+	fmt.Fprintf(w, "}")
+	for _, name := range fragmentNames {
+		fmt.Fprintf(w, " & Fragment_%s_Data", name)
+	}
 }
 
 func (t *Typer) visitVariableDefinitions(vars ast.VariableDefinitionList) {
@@ -172,16 +385,10 @@ func (t *Typer) visitVariableDefinition(def *ast.VariableDefinition) {
 	t.variables[name] = t.visitTypeRef(def.Type)
 }
 
-func (t *Typer) visitSelectionSet(typeCondition string, selections ast.SelectionSet) {
-	t.dataBuilder.WriteString("{ __typename: ")
-	t.dataBuilder.WriteString(t.concreteTypename(typeCondition))
-	t.dataBuilder.WriteString("; ")
-
+func (t *Typer) visitSelectionSet(selections ast.SelectionSet) {
 	for _, selection := range selections {
 		t.visitSelection(selection)
 	}
-
-	t.dataBuilder.WriteString("}")
 }
 
 func (t *Typer) concreteTypename(name string) string {
@@ -213,35 +420,38 @@ func (t *Typer) visitField(node *ast.Field) {
 	if alias == "" {
 		alias = node.Name
 	}
-	t.dataBuilder.WriteString(alias)
-	t.dataBuilder.WriteString(": ")
+	var fieldType string
 	if node.SelectionSet == nil {
-		t.dataBuilder.WriteString(t.visitTypeRef(def.Type))
+		fieldType = t.visitTypeRef(def.Type)
 	} else {
-		t.visitSelectionSet(def.Type.NamedType, node.SelectionSet)
+		end := t.startObject(t.getType(def.Type.NamedType))
+		t.visitSelectionSet(node.SelectionSet)
+		fieldType = end()
 	}
-	t.dataBuilder.WriteString("; ")
+	t.fields[alias] = fieldType
+	for _, def := range t.self.definitions {
+		t.objects[def.Name].fields[alias] = true
+	}
 }
 
 func (t *Typer) visitFragmentSpread(node *ast.FragmentSpread) {
+	widen := t.narrow(t.getType(node.Definition.TypeCondition))
+	defer widen()
+
 	if node.Name == "" {
-		t.visitFragment(node.ObjectDefinition, node.Definition.SelectionSet)
+		t.visitSelectionSet(node.Definition.SelectionSet)
 	} else {
-		fmt.Fprintf(&t.dataBuilder, "Fragment_%s_Data", node.Name)
+		for _, def := range t.self.definitions {
+			t.objects[def.Name].fragments[node.Name] = true
+		}
 	}
 }
 
 func (t *Typer) visitInlineFragment(node *ast.InlineFragment) {
-	t.visitFragment(node.ObjectDefinition, node.SelectionSet)
-}
+	widen := t.narrow(t.getType(node.TypeCondition))
+	defer widen()
 
-func (t *Typer) visitFragment(object *ast.Definition, selections ast.SelectionSet) {
-	typ := object.Name
-	t.dataBuilder.WriteString(" } & ({ __typename: string } | { __typename: ")
-	t.dataBuilder.WriteString(t.concreteTypename(typ))
-	t.dataBuilder.WriteString("; ")
-	t.visitSelectionSet(object.Name, selections)
-	t.dataBuilder.WriteString("})")
+	t.visitSelectionSet(node.SelectionSet)
 }
 
 func (t *Typer) visitTypeRef(typ *ast.Type) string {
