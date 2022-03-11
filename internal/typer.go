@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/vektah/gqlparser/v2/ast"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 	"github.com/vektah/gqlparser/v2/parser"
 	"github.com/vektah/gqlparser/v2/validator"
 )
@@ -37,7 +38,14 @@ func (t *Typer) loadQuery(gql string) (*ast.QueryDocument, error) {
 		return nil, err
 	}
 
-	errs := validator.Validate(t.Schema, doc)
+	errs := filterErrors(validator.Validate(t.Schema, doc))
+	if len(errs) > 0 {
+		return nil, errs
+	}
+	return doc, nil
+}
+
+func filterErrors(errs gqlerror.List) gqlerror.List {
 	dst := 0
 	for i := 0; i < len(errs); i++ {
 		err := errs[i]
@@ -48,10 +56,7 @@ func (t *Typer) loadQuery(gql string) (*ast.QueryDocument, error) {
 		dst++
 	}
 	errs = errs[:dst]
-	if len(errs) > 0 {
-		return nil, errs
-	}
-	return doc, nil
+	return errs
 }
 
 func ignoreError(err error) bool {
@@ -80,23 +85,25 @@ func (t *Typer) VisitString(gql string) (string, error) {
 }
 
 func (t *Typer) visitDocument(doc *ast.QueryDocument) (string, error) {
-	n := len(doc.Operations) + len(doc.Fragments)
-	switch n {
+	switch len(doc.Operations) {
 	case 0:
-		return "", errors.New("no definitions")
+		switch len(doc.Fragments) {
+		case 0:
+			return "", errors.New("no definitions")
+		case 1:
+			typ := t.visitFragmentDefinition(doc.Fragments[0])
+			return typ, nil
+		default:
+			return "", fmt.Errorf("expected at most one fragment definition, found %d", len(doc.Fragments))
+		}
 	case 1:
-		for _, operation := range doc.Operations {
-			typ := t.visitOperationDefinition(operation)
-			return typ, nil
-		}
 		for _, fragment := range doc.Fragments {
-			typ := t.visitFragmentDefinition(fragment)
-			return typ, nil
+			t.visitFragmentDefinition(fragment)
 		}
-		panic("unreachable")
+		typ := t.visitOperationDefinition(doc.Operations[0])
+		return typ, nil
 	default:
-		// TODO: Support 1 operation + N fragments.
-		return "", fmt.Errorf("expected exactly one definition, found %d", n)
+		return "", fmt.Errorf("expected at most one operation definition, found %d", len(doc.Operations))
 	}
 }
 
@@ -119,20 +126,18 @@ func (t *Typer) reset() {
 }
 
 func (t *Typer) buildDefDocType(prefix string, name string) string {
-	typ := t.buildDocType()
-
-	if name == "" {
-		return typ
-	}
-
-	typeName := prefix + "_" + name
-	t.Declarations = append(t.Declarations, fmt.Sprintf("type %s = %s;", typeName, typ))
-	return typeName
-}
-
-func (t *Typer) buildDocType() string {
 	data := t.dataBuilder.String()
 	variables := t.buildVariables()
+
+	if name != "" {
+		t.Declarations = append(t.Declarations,
+			fmt.Sprintf("export type %s_%s_Data = %s;", prefix, name, data),
+			fmt.Sprintf("export type %s_%s_Variables = %s;", prefix, name, t.buildVariables()),
+		)
+		data = fmt.Sprintf("%s_%s_Data", prefix, name)
+		variables = fmt.Sprintf("%s_%s_Variables", prefix, name)
+	}
+
 	return fmt.Sprintf("{ data: %s; variables: %s; }", data, variables)
 }
 
@@ -207,11 +212,20 @@ func (t *Typer) visitField(node *ast.Field) {
 }
 
 func (t *Typer) visitFragmentSpread(node *ast.FragmentSpread) {
-	panic("TODO: fragment spread")
+	t.visitFragment(node.ObjectDefinition, node.Definition.SelectionSet)
 }
 
 func (t *Typer) visitInlineFragment(node *ast.InlineFragment) {
-	panic("TODO: inline fragment")
+	t.visitFragment(node.ObjectDefinition, node.SelectionSet)
+}
+
+func (t *Typer) visitFragment(object *ast.Definition, selections ast.SelectionSet) {
+	typ := object.Name
+	t.dataBuilder.WriteString("} & ({ __typename: string } | { __typename: ")
+	t.dataBuilder.WriteString(encodeString(typ))
+	t.dataBuilder.WriteString("; ")
+	t.visitSelectionSet(selections)
+	t.dataBuilder.WriteString("})")
 }
 
 func (t *Typer) visitTypeRef(typ *ast.Type) string {

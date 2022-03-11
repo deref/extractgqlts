@@ -8,36 +8,49 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
-func mustGenerateTypes(schema *ast.Schema, gql string) (string, GeneratedTypes) {
-	t := &Typer{
-		Schema: schema,
-	}
-	typ, err := t.VisitString(gql)
-	if err != nil {
-		panic(err)
-	}
-	return typ, t.GeneratedTypes
-}
-
 func TestTyper(t *testing.T) {
 	schema := gqlparser.MustLoadSchema(&ast.Source{
 		Name: "schema.gql",
 		Input: `
 			type Query {
 				hello: String!
-				
+
 				userById(id: String!): User
 				currentUser: User
-				
+
 				now: Instant!
+
+				named(name: String!): Named
+
+				status: Status
 			}
-			
-			type User {
+
+			scalar Instant
+
+			interface Named {
+				name: String!
+			}
+
+			type User implements Named {
 				name: String!
 				profile: String
 			}
-			
-			scalar Instant
+
+			type Pet implements Named {
+				name: String!
+				species: String!
+			}
+
+			union Status = Green | Red
+
+			type Green {
+				ok: Boolean!
+			}
+
+			type Red {
+				ok: Boolean!
+				message: String!
+			}
 		`,
 	})
 	// NOTE: These tests are not at all forgiving of whitespace, optional
@@ -45,12 +58,12 @@ func TestTyper(t *testing.T) {
 	// the assertions less strict, or update the expected values to match.
 	tests := []struct {
 		Input                string
-		ExpectedType         string
+		ExpectedRoot         string
 		ExpectedDeclarations GeneratedTypes
 	}{
 		{
 			Input:        `{ hello }`,
-			ExpectedType: `{ data: { hello: string; }; variables: { }; }`,
+			ExpectedRoot: `{ data: { hello: string; }; variables: { }; }`,
 			ExpectedDeclarations: GeneratedTypes{
 				QueryMap: []QueryType{
 					{
@@ -62,37 +75,39 @@ func TestTyper(t *testing.T) {
 		},
 		{
 			Input:        `query GetUser($userId: String!) { user: userById(id: $userId) { name, bio: profile } }`,
-			ExpectedType: "Query_GetUser",
+			ExpectedRoot: `{ data: Query_GetUser_Data; variables: Query_GetUser_Variables; }`,
 			ExpectedDeclarations: GeneratedTypes{
 				QueryMap: []QueryType{
 					{
 						Query: `query GetUser($userId: String!) { user: userById(id: $userId) { name, bio: profile } }`,
-						Type:  `Query_GetUser`,
+						Type:  `{ data: Query_GetUser_Data; variables: Query_GetUser_Variables; }`,
 					},
 				},
 				Declarations: []string{
-					"type Query_GetUser = { data: { user: { name: string; bio: (string | null); }; }; variables: { userId: string; }; };",
+					`export type Query_GetUser_Data = { user: { name: string; bio: (string | null); }; };`,
+					`export type Query_GetUser_Variables = { userId: string; };`,
 				},
 			},
 		},
 		{
 			Input:        `fragment User on User { name, profile }`,
-			ExpectedType: "Fragment_User",
+			ExpectedRoot: `{ data: Fragment_User_Data; variables: Fragment_User_Variables; }`,
 			ExpectedDeclarations: GeneratedTypes{
 				QueryMap: []QueryType{
 					{
 						Query: `fragment User on User { name, profile }`,
-						Type:  `Fragment_User`,
+						Type:  `{ data: Fragment_User_Data; variables: Fragment_User_Variables; }`,
 					},
 				},
 				Declarations: []string{
-					"type Fragment_User = { data: { name: string; profile: (string | null); }; variables: { }; };",
+					`export type Fragment_User_Data = { name: string; profile: (string | null); };`,
+					`export type Fragment_User_Variables = { };`,
 				},
 			},
 		},
 		{
 			Input:        `query Clock { now }`,
-			ExpectedType: `Query_Clock`,
+			ExpectedRoot: `{ data: Query_Clock_Data; variables: Query_Clock_Variables; }`,
 			ExpectedDeclarations: GeneratedTypes{
 				Scalars: []string{
 					"Instant",
@@ -100,18 +115,52 @@ func TestTyper(t *testing.T) {
 				QueryMap: []QueryType{
 					{
 						Query: `query Clock { now }`,
-						Type:  `Query_Clock`,
+						Type:  `{ data: Query_Clock_Data; variables: Query_Clock_Variables; }`,
 					},
 				},
 				Declarations: []string{
-					"type Query_Clock = { data: { now: Instant; }; variables: { }; };",
+					`export type Query_Clock_Data = { now: Instant; };`,
+					`export type Query_Clock_Variables = { };`,
 				},
 			},
 		},
+		//		{
+		//			Input: `
+		//query Fred { named(name: "fred") { ...Named, ... on Pet { species } } }
+		//fragment Named on Named { name }
+		//`,
+		//			ExpectedType: `Query_Fred`,
+		//			ExpectedDeclarations: GeneratedTypes{
+		//				QueryMap: []QueryType{
+		//					{
+		//						Query: `
+		//query Fred { named(name: "fred") { ...Named, ... on Pet { species } } }
+		//fragment Named on Named { name }
+		//`,
+		//						Type: `Query_Fred`,
+		//					},
+		//				},
+		//				Declarations: []string{
+		//					`export type Fragment_Named = { data: { name: string; } & ({ __typename: string } | {__typename: "Dog", species: string }); variables: { }; };`,
+		//					`export type Query_Fred = { data: { name: string; } & ({ __typename: string } | {__typename: "Dog", species: string }); variables: { }; };`,
+		//				},
+		//			},
+		//		},
 	}
 	for _, test := range tests {
-		actualType, actualDeclarations := mustGenerateTypes(schema, test.Input)
-		assert.Equal(t, test.ExpectedType, actualType)
+		typer := &Typer{
+			Schema: schema,
+		}
+		actualRoot, err := typer.VisitString(test.Input)
+		if !assert.NoError(t, err) {
+			continue
+		}
+		if err != nil {
+			panic(err)
+		}
+		actualDeclarations := typer.GeneratedTypes
+
+		assert.Equal(t, test.ExpectedRoot, actualRoot)
 		assert.Equal(t, test.ExpectedDeclarations, actualDeclarations)
 	}
 }
