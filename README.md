@@ -1,11 +1,16 @@
-# extractgqlts - Extracts TypeScript types from GraphQL string literals.
+# extractgqlts - Extract GraphQL TypeScript
 
-Extremely fast and uncomplicated tool for extracting GraphQL documents from
-TypeScript files, and generating easy-to-use query and variables Types.
+Generates TypeScript types from GraphQL usage in string literals.
+
+This code generation tool is intended to be extremely fast to execute.
+Additionally, strong conventions make it uncomplicated to use.
 
 ## Status
 
 **EXPERIMENTAL**
+
+This is extremely unlike to work for you out of the box. It is being integrated
+into a real product now, so that situation will slowly improve.
 
 Feedback and/or contributions welcome.
 
@@ -19,7 +24,20 @@ go get github.com/deref/extractgqlts
 
 ## Usage
 
-Something like this:
+Write queries in your code using string literals with the following prefix:
+<code>`#graphql</code>. For example:
+
+```typescript
+const { query } = './example/graphql';
+
+const profileFragment = `#graphql fragment Profile on Named { name }`
+
+const query(`#graphql { node(id: $id) { id, ...Profile } }`, {
+  include: [profileFragment],
+});
+```
+
+Run the code generator, something like this:
 
 ```bash
 extractgqlts \
@@ -91,7 +109,7 @@ duplicate identifier.
 ### No TypeScript Parsing
 
 Extracts GraphQL documents from TypeScript files by scanning for
-<code>`#graphql<code>. This character sequence starts a JavaScript string
+<code>`#graphql</code>. This character sequence starts a JavaScript string
 literal that is assumed to contain a GraphQL document. This pattern is also
 recognized by common IDE plugins, such as [the most popular one for VS
 Code](https://marketplace.visualstudio.com/items?itemName=GraphQL.vscode-graphql).
