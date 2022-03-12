@@ -30,9 +30,20 @@ Write queries in your code using string literals with the following prefix:
 ```typescript
 const { query } = './example/graphql';
 
-const profileFragment = `#graphql fragment Profile on Named { name }`
+const profileFragment = `#graphql
+  fragment Profile on Named {
+    name
+  }
+`
 
-const query(`#graphql { node(id: $id) { id, ...Profile } }`, {
+const query(`#graphql
+  {
+    node(id: $id) {
+      id
+      ...Profile
+    }
+  }
+`, {
   include: [profileFragment],
 });
 ```
