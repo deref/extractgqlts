@@ -8,8 +8,7 @@ import (
 
 	"path/filepath"
 
-	"github.com/vektah/gqlparser/ast"
-	"github.com/vektah/gqlparser/gqlerror"
+	"github.com/deref/gqltagts/internal"
 	"github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
 )
@@ -24,7 +23,7 @@ func init() {
 }
 
 func main() {
-	g := &rootgen{}
+	g := &generator{}
 	if err := g.run(); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
@@ -35,7 +34,7 @@ func main() {
 }
 
 type generator struct {
-	schema *ast.Schema
+	typer  internal.Typer
 	errors int
 }
 
@@ -56,15 +55,48 @@ func (g *generator) run() error {
 	}
 
 	for _, inputPattern := range inputPatterns {
-		inputPath := inputPattern // XXX glob
-		g.visitInput(inputPath)
+		inputPaths, err := filepath.Glob(inputPattern)
+		if err != nil {
+			g.warnf("error expanding filepath pattern %q: %w", inputPattern, err)
+			continue
+		}
+		for _, inputPath := range inputPaths {
+			g.visitInput(inputPath)
+		}
 	}
+
+	fmt.Println("// GENERATED FILE. DO NOT EDIT.")
+	fmt.Println()
+
+	generated := g.typer.GeneratedTypes
+	if len(generated.Scalars) > 0 {
+		fmt.Print(`import {`)
+		for _, scalar := range generated.Scalars {
+			fmt.Print(" ")
+			fmt.Print(scalar)
+		}
+		fmt.Println(` } from "./scalars.ts";`)
+		fmt.Println()
+	}
+
+	if len(generated.Declarations) > 0 {
+		for _, decl := range generated.Declarations {
+			fmt.Println(decl)
+		}
+		fmt.Println()
+	}
+
+	fmt.Println("export type QueryTypes = {")
+	for _, entry := range generated.QueryMap {
+		fmt.Printf("  %s: %s;\n", internal.StringToJSON(entry.Query), entry.Type)
+	}
+	fmt.Println("}")
 
 	return nil
 }
 
 func (g *generator) loadSchema() (err error) {
-	g.schema, err = loadSchema()
+	g.typer.Schema, err = loadSchema()
 	return
 }
 
@@ -74,14 +106,14 @@ func loadSchema() (*ast.Schema, error) {
 		return nil, fmt.Errorf("reading: %w", err)
 	}
 
-	return gqlparser.LoadSchema(&ast.Source{
+	schema, gqlErr := gqlparser.LoadSchema(&ast.Source{
 		Name:  schemaPath,
-		Input: schemaBuf,
+		Input: string(schemaBuf),
 	})
-}
-
-func (g *generator) loadQuery(src string) (*ast.QueryDocument, gqlerror.List) {
-	return gqlparser.LoadQuery(g.schema, src)
+	if gqlErr != nil {
+		return nil, gqlErr
+	}
+	return schema, nil
 }
 
 func (g *generator) visitInput(inputPath string) {
@@ -90,6 +122,12 @@ func (g *generator) visitInput(inputPath string) {
 		g.warnf("reading %q: %w", inputPath, err)
 		return
 	}
-
-	// XXX
+	queries, err := internal.ExtractQueriesFromBytes(bs)
+	if err != nil {
+		g.warnf("extracting queries from %q: %w", inputPath, err)
+		return
+	}
+	for _, query := range queries {
+		g.typer.VisitString(query)
+	}
 }

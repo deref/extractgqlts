@@ -6,13 +6,13 @@ import (
 	"unicode/utf8"
 )
 
-func FromString(s string) ([]string, error) {
-	return FromBytes([]byte(s))
+func ExtractQueriesFromString(s string) ([]string, error) {
+	return ExtractQueriesFromBytes([]byte(s))
 }
 
 var startRE = regexp.MustCompile("\\`\\#graphql")
 
-func FromBytes(bs []byte) ([]string, error) {
+func ExtractQueriesFromBytes(bs []byte) ([]string, error) {
 	var res []string
 scan:
 	for len(bs) > 0 {

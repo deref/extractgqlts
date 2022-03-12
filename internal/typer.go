@@ -30,7 +30,7 @@ type typeUnion struct {
 func newTypeUnion(defs []*ast.Definition) typeUnion {
 	names := make([]string, len(defs))
 	for i, def := range defs {
-		names[i] = stringToJSON(def.Name)
+		names[i] = StringToJSON(def.Name)
 	}
 
 	return typeUnion{
@@ -394,7 +394,7 @@ func (t *Typer) visitSelectionSet(selections ast.SelectionSet) {
 func (t *Typer) concreteTypename(name string) string {
 	typ := t.Schema.Types[name]
 	if typ != nil && typ.Kind == ast.Object {
-		return stringToJSON(typ.Name)
+		return StringToJSON(typ.Name)
 	} else {
 		return "string"
 	}

@@ -29,14 +29,14 @@ func TestExtract(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		actual, err := FromString(test.Input)
+		actual, err := ExtractQueriesFromString(test.Input)
 		if assert.NoError(t, err) {
 			assert.Equal(t, test.Expected, actual, "input: %s", test.Input)
 		}
 	}
 
 	{
-		_, err := FromString("`#graphql")
+		_, err := ExtractQueriesFromString("`#graphql")
 		assert.ErrorIs(t, err, io.ErrUnexpectedEOF)
 	}
 }

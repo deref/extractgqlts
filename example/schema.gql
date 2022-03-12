@@ -1,6 +1,26 @@
 type Query {
   hello: String
-  now: Date
+
+  now: Instant!
+
+  named(name: String!): Named
 }
 
-scalar Date
+type Subscription {
+  tick: Instant!
+}
+
+scalar Instant
+
+interface Named {
+  name: String!
+}
+
+type User implements Named {
+  name: String!
+}
+
+type Pet implements Named {
+  name: String!
+  species: String!
+}
