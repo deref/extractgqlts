@@ -8,7 +8,8 @@ import (
 
 	"path/filepath"
 
-	"github.com/deref/gqltagts/internal"
+	"github.com/bmatcuk/doublestar"
+	"github.com/deref/extractgqlts/internal"
 	"github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
 )
@@ -55,7 +56,7 @@ func (g *generator) run() error {
 	}
 
 	for _, inputPattern := range inputPatterns {
-		inputPaths, err := filepath.Glob(inputPattern)
+		inputPaths, err := doublestar.Glob(inputPattern)
 		if err != nil {
 			g.warnf("error expanding filepath pattern %q: %w", inputPattern, err)
 			continue
