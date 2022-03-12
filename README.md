@@ -1,0 +1,101 @@
+# extractgqlts - Extracts TypeScript types from GraphQL string literals.
+
+Extremely fast and uncomplicated tool for extracting GraphQL documents from
+TypeScript files, and generating easy-to-use query and variables Types.
+
+## Status
+
+**EXPERIMENTAL**
+
+Feedback and/or contributions welcome.
+
+## Install
+
+Currently only distributed as a Go module:
+
+```bash
+go get github.com/deref/extractgqlts
+```
+
+## Usage
+
+Something like this:
+
+```bash
+extractgqlts \
+  --schema ./src/graphql/schema.gql \
+  './src/components/{tsx,svelte}' \
+  > ./src/graphql/types.generated.ts
+```
+
+If it's not immediately clear how to use the generated output, read the "Design
+Constraints and Implementation Notes" below. If it's still not clear, please
+open an issue.
+
+If you have custom scalars, you'll also need `./src/graphql/scalars.ts`.
+
+## Design Constraints & Implementation Notes
+
+### Queries Live in Component Files
+
+It should not require many, many files to define a single UI Component. GraphQL
+queries must appear in the one and only component file.
+
+### No Manual Type Imports
+
+Given a global schema, the query string itself should be sufficient to
+determine the data and variable types. You shouldn't need to give the query an
+explicit name and then laborously import a type based on that name. Until
+TypeScript offers [type providers](https://github.com/microsoft/TypeScript/issues/3136),
+the only way to do this without a manual import is to use a [mapped
+type](https://www.typescriptlang.org/docs/handbook/2/mapped-types.html) keyed
+by the query string.
+
+### Framework Agnostic
+
+Does not assume React, Apollo, or anything else.
+
+This means you must provide your own entrypoint to the generated types that
+indexes the `QueryTypes` map.
+
+As a simplified example:
+
+```typescript
+import { QueryTypes } from './types.generated.ts';
+
+const query = <TQuery extends keyof QueryTypes>(
+  query: TQuery,
+  variables: QueryTypes[TQuery]['variables'],
+): Promise<QueryTypes[TQuery]['data']> => {
+  // ...
+}
+```
+
+### Convention over Configuration
+
+The assumption is that you will have one module directory that will contain
+three code files:
+
+- `./types.generated.ts` - The generated output of the `extractgqlts` tool.
+  Note, this name is not (yet?) enforced.
+- `./scalars.ts` - Exports scalar types to be imported by `./types.generated.ts`.
+- `./index.ts` - Consumes the generated types and exports exposes your
+  framework-specific entrypoints.
+
+### Global Names
+
+Assumes there is one global namespace of query and fragment names in your
+application. If you violate this, you'll get a TypeScript error regarding a
+duplicate identifier.
+
+### No TypeScript Parsing
+
+Extracts GraphQL documents from TypeScript files by scanning for
+<code>`#graphql<code>. This character sequence starts a JavaScript string
+literal that is assumed to contain a GraphQL document. This pattern is also
+recognized by common IDE plugins, such as [the most popular one for VS
+Code](https://marketplace.visualstudio.com/items?itemName=GraphQL.vscode-graphql).
+
+Note, we look for a string literal and not a <code>gql`</code> template literal
+tag because of a [TypeScript
+limitation](https://github.com/microsoft/TypeScript/issues/33304).
