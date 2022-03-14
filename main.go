@@ -16,8 +16,6 @@ import (
 
 var schemaPath string
 
-type stringFlags []string
-
 func init() {
 	flag.StringVar(&schemaPath, "schema", "", "path to graphql schema")
 	flag.Parse()
@@ -76,7 +74,7 @@ func (g *generator) run() error {
 			fmt.Print(" ")
 			fmt.Print(scalar)
 		}
-		fmt.Println(` } from "./scalars.ts";`)
+		fmt.Println(` } from "./scalars";`)
 		fmt.Println()
 	}
 
@@ -129,6 +127,8 @@ func (g *generator) visitInput(inputPath string) {
 		return
 	}
 	for _, query := range queries {
-		g.typer.VisitString(query)
+		if _, err := g.typer.VisitString(inputPath, query); err != nil {
+			g.warnf("error: %v", err)
+		}
 	}
 }

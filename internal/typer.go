@@ -105,8 +105,11 @@ type QueryType struct {
 	Type  string
 }
 
-func (t *Typer) loadQuery(gql string) (*ast.QueryDocument, error) {
-	doc, err := parser.ParseQuery(&ast.Source{Input: gql})
+func (t *Typer) loadQuery(filename, gql string) (*ast.QueryDocument, error) {
+	doc, err := parser.ParseQuery(&ast.Source{
+		Name:  filename,
+		Input: gql,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -141,20 +144,23 @@ func ignoreError(err error) bool {
 	}
 }
 
-func (t *Typer) VisitString(gql string) (string, error) {
-	doc, err := t.loadQuery(gql)
-	if err != nil {
-		return "", fmt.Errorf("loading query: %w", err)
+// Returns a TypeScript type as a string.
+// On error, that type will be "unknown" with a comment.
+func (t *Typer) VisitString(filename, gql string) (string, error) {
+	doc, err := t.loadQuery(filename, gql)
+	var typ string
+	if err == nil {
+		typ, err = t.visitDocument(doc)
 	}
-	typ, err := t.visitDocument(doc)
-	if err != nil {
-		return "", err
+	if err == nil {
+		t.GeneratedTypes.QueryMap = append(t.GeneratedTypes.QueryMap, QueryType{
+			Query: gql,
+			Type:  typ,
+		})
+	} else {
+		typ = fmt.Sprintf("unknown /* ERROR: %v */", err)
 	}
-	t.GeneratedTypes.QueryMap = append(t.GeneratedTypes.QueryMap, QueryType{
-		Query: gql,
-		Type:  typ,
-	})
-	return typ, nil
+	return typ, err
 }
 
 func (t *Typer) visitDocument(doc *ast.QueryDocument) (string, error) {

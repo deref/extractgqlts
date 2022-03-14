@@ -60,6 +60,7 @@ func TestTyper(t *testing.T) {
 	tests := []struct {
 		Input                string
 		ExpectedRoot         string
+		ExpectError          bool
 		ExpectedDeclarations GeneratedTypes
 	}{
 		// Simplest declaration.
@@ -182,18 +183,24 @@ fragment Named on Named { name }
 				},
 			},
 		},
+		// Errors.
+		{
+			Input:        `{`,
+			ExpectedRoot: `unknown /* ERROR: input:1: Expected Name, found <EOF> */`,
+			ExpectError:  true,
+		},
 		// TODO: Mutations & Subscriptions.
 	}
 	for _, test := range tests {
 		typer := &Typer{
 			Schema: schema,
 		}
-		actualRoot, err := typer.VisitString(test.Input)
-		if !assert.NoError(t, err, "input: %s", test.Input) {
+		filename := ""
+		actualRoot, err := typer.VisitString(filename, test.Input)
+		if test.ExpectError {
+			assert.Error(t, err)
+		} else if !assert.NoError(t, err, "input: %s", test.Input) {
 			continue
-		}
-		if err != nil {
-			panic(err)
 		}
 		actualDeclarations := typer.GeneratedTypes
 

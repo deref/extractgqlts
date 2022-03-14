@@ -11,9 +11,13 @@ const anon2 = `#graphql
 `;
 
 const namedFragment = `#graphql
-  fragment Named {
+  fragment Profile on Named {
     name
   }
+`;
+
+const badFragment = `#graphql
+  { no_close_bracket_after_this
 `;
 
 // TODO: subscription
