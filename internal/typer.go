@@ -382,7 +382,7 @@ func (t *Typer) visitVariableDefinition(def *ast.VariableDefinition) {
 		// TODO: Check for conflicts.
 		return
 	}
-	t.variables[name] = t.visitTypeRef(def.Type)
+	t.variables[name] = t.visitType(def.Type)
 }
 
 func (t *Typer) visitSelectionSet(selections ast.SelectionSet) {
@@ -422,32 +422,57 @@ func (t *Typer) visitField(node *ast.Field) {
 	}
 	var fieldType string
 	if node.SelectionSet == nil {
-		fieldType = t.visitTypeRef(def.Type)
+		fieldType = t.visitType(def.Type)
 	} else {
-		// Unwrap list types.
-		typ := def.Type
-		listWrappers := 0
-		for typ.NamedType == "" {
-			typ = typ.Elem
-			listWrappers++
-		}
-
-		end := t.startObject(t.getDefinition(typ.NamedType))
+		leafName, endType := t.beginType(def.Type)
+		endObject := t.startObject(t.getDefinition(leafName))
 		t.visitSelectionSet(node.SelectionSet)
-		fieldType = end()
+		fieldType = endType(endObject())
 
-		// Re-wrap array types.
-		if listWrappers > 0 {
-			fieldType = fmt.Sprintf("(%s)[]", fieldType)
-			if listWrappers > 2 {
-				fieldType += strings.Repeat("[]", listWrappers-1)
-			}
-		}
 	}
 	t.fields[alias] = fieldType
 	for _, def := range t.self.definitions {
 		t.objects[def.Name].fields[alias] = true
 	}
+}
+
+func (t *Typer) beginType(typ *ast.Type) (leafName string, end func(unwrapped string) (wrapped string)) {
+	var stack []*ast.Type
+	for {
+		stack = append(stack, typ)
+		if typ.Elem == nil {
+			break
+		}
+		typ = typ.Elem
+	}
+	leafName = typ.NamedType
+	end = func(unwrapped string) (wrapped string) {
+		needsParens := strings.Contains(unwrapped, " ")
+		var b strings.Builder
+		for _, wrapper := range stack {
+			if needsParens && !wrapper.NonNull || wrapper.Elem != nil {
+				b.WriteString("(")
+			}
+		}
+		b.WriteString(unwrapped)
+		for i := len(stack) - 1; i >= 0; i-- {
+			wrapper := stack[i]
+			if needsParens {
+				if !wrapper.NonNull || wrapper.Elem != nil {
+					b.WriteString(")")
+				}
+				if wrapper.Elem != nil {
+					b.WriteString("[]")
+				}
+			}
+			if !wrapper.NonNull {
+				b.WriteString(" | null")
+				needsParens = true
+			}
+		}
+		return b.String()
+	}
+	return
 }
 
 func (t *Typer) visitFragmentSpread(node *ast.FragmentSpread) {
@@ -470,22 +495,19 @@ func (t *Typer) visitInlineFragment(node *ast.InlineFragment) {
 	t.visitSelectionSet(node.SelectionSet)
 }
 
-func (t *Typer) visitTypeRef(typ *ast.Type) string {
-	name := typ.Name()
-	switch name {
+func (t *Typer) visitType(typ *ast.Type) string {
+	leafName, end := t.beginType(typ)
+	switch leafName {
 	case "String", "ID":
-		name = "string"
+		leafName = "string"
 	case "Boolean":
-		name = "boolean"
+		leafName = "boolean"
 	case "Int", "Float":
-		name = "number"
+		leafName = "number"
 	default:
-		t.Scalars = append(t.Scalars, name)
+		t.Scalars = append(t.Scalars, leafName)
 	}
-	if !typ.NonNull {
-		name = fmt.Sprintf("(%s | null)", name)
-	}
-	return name
+	return end(leafName)
 }
 
 func (t *Typer) visitArgumentList(args ast.ArgumentList) {

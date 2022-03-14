@@ -21,9 +21,11 @@ func TestTyper(t *testing.T) {
 
 				now: Instant!
 
-				named(name: String!): Named
+				named(name: String!): Named!
 
 				status: Status
+
+				concatAll(stringLists: [[String]]): String!
 			}
 
 			scalar Instant
@@ -85,7 +87,7 @@ func TestTyper(t *testing.T) {
 					},
 				},
 				Declarations: []string{
-					`export type Query_GetUser_Data = { __typename: "Query"; user: { __typename: "User"; bio: (string | null); name: string; }; };`,
+					`export type Query_GetUser_Data = { __typename: "Query"; user: ({ __typename: "User"; bio: string | null; name: string; }) | null; };`,
 					`export type Query_GetUser_Variables = { userId: string; };`,
 				},
 			},
@@ -115,7 +117,7 @@ func TestTyper(t *testing.T) {
 					},
 				},
 				Declarations: []string{
-					`export type Fragment_User_Data = { __typename: "User"; name: string; profile: (string | null); };`,
+					`export type Fragment_User_Data = { __typename: "User"; name: string; profile: string | null; };`,
 					`export type Fragment_User_Variables = { };`,
 				},
 			},
@@ -164,6 +166,19 @@ fragment Named on Named { name }
 					// Is it worth it? TypeScript should handle that for us.
 					`export type Query_Fred_Data = { __typename: "Query"; named: { __typename: "Pet"; species: string; } & Fragment_Named_Data | { __typename: "Pet" | "User"; species: string; } & Fragment_Named_Data; };`,
 					`export type Query_Fred_Variables = { };`,
+				},
+			},
+		},
+		// Nested lists with nullability.
+		{
+			Input:        `query ($stringLists: [[String]]) { concatAll(stringLists: $stringLists) }`,
+			ExpectedRoot: `{ data: { __typename: "Query"; concatAll: string; }; variables: { stringLists: ((string | null)[] | null)[] | null; }; }`,
+			ExpectedDeclarations: GeneratedTypes{
+				QueryMap: []QueryType{
+					{
+						Query: `query ($stringLists: [[String]]) { concatAll(stringLists: $stringLists) }`,
+						Type:  `{ data: { __typename: "Query"; concatAll: string; }; variables: { stringLists: ((string | null)[] | null)[] | null; }; }`,
+					},
 				},
 			},
 		},
