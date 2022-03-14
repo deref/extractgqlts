@@ -226,7 +226,7 @@ func (t *Typer) toConcreteUnion(def *ast.Definition) typeUnion {
 	case ast.Union:
 		defs := make([]*ast.Definition, len(def.Types))
 		for i, name := range def.Types {
-			defs[i] = t.getType(name)
+			defs[i] = t.getDefinition(name)
 		}
 		return newTypeUnion(defs)
 
@@ -239,7 +239,7 @@ func (t *Typer) toConcreteUnion(def *ast.Definition) typeUnion {
 }
 
 func (t *Typer) visitFragmentDefinition(op *ast.FragmentDefinition) (documentType string) {
-	objectType := t.getType(op.TypeCondition)
+	objectType := t.getDefinition(op.TypeCondition)
 	end := t.startDefinition("Fragment", op.Name, objectType)
 	t.visitSelectionSet(op.SelectionSet)
 	return end()
@@ -269,7 +269,7 @@ func (t *Typer) startObject(typ *ast.Definition) (end func() (dataType string)) 
 	}
 }
 
-func (t *Typer) getType(name string) *ast.Definition {
+func (t *Typer) getDefinition(name string) *ast.Definition {
 	return t.Schema.Types[name]
 }
 
@@ -424,9 +424,25 @@ func (t *Typer) visitField(node *ast.Field) {
 	if node.SelectionSet == nil {
 		fieldType = t.visitTypeRef(def.Type)
 	} else {
-		end := t.startObject(t.getType(def.Type.NamedType))
+		// Unwrap list types.
+		typ := def.Type
+		listWrappers := 0
+		for typ.NamedType == "" {
+			typ = typ.Elem
+			listWrappers++
+		}
+
+		end := t.startObject(t.getDefinition(typ.NamedType))
 		t.visitSelectionSet(node.SelectionSet)
 		fieldType = end()
+
+		// Re-wrap array types.
+		if listWrappers > 0 {
+			fieldType = fmt.Sprintf("(%s)[]", fieldType)
+			if listWrappers > 2 {
+				fieldType += strings.Repeat("[]", listWrappers-1)
+			}
+		}
 	}
 	t.fields[alias] = fieldType
 	for _, def := range t.self.definitions {
@@ -435,7 +451,7 @@ func (t *Typer) visitField(node *ast.Field) {
 }
 
 func (t *Typer) visitFragmentSpread(node *ast.FragmentSpread) {
-	widen := t.narrow(t.getType(node.Definition.TypeCondition))
+	widen := t.narrow(t.getDefinition(node.Definition.TypeCondition))
 	defer widen()
 
 	if node.Name == "" {
@@ -448,7 +464,7 @@ func (t *Typer) visitFragmentSpread(node *ast.FragmentSpread) {
 }
 
 func (t *Typer) visitInlineFragment(node *ast.InlineFragment) {
-	widen := t.narrow(t.getType(node.TypeCondition))
+	widen := t.narrow(t.getDefinition(node.TypeCondition))
 	defer widen()
 
 	t.visitSelectionSet(node.SelectionSet)

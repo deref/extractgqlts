@@ -17,6 +17,7 @@ func TestTyper(t *testing.T) {
 
 				userById(id: String!): User
 				currentUser: User
+				allUsers: [User!]!
 
 				now: Instant!
 
@@ -86,6 +87,19 @@ func TestTyper(t *testing.T) {
 				Declarations: []string{
 					`export type Query_GetUser_Data = { __typename: "Query"; user: { __typename: "User"; bio: (string | null); name: string; }; };`,
 					`export type Query_GetUser_Variables = { userId: string; };`,
+				},
+			},
+		},
+		// Lists.
+		{
+			Input:        `{ allUsers { name } }`,
+			ExpectedRoot: `{ data: { __typename: "Query"; allUsers: ({ __typename: "User"; name: string; })[]; }; variables: { }; }`,
+			ExpectedDeclarations: GeneratedTypes{
+				QueryMap: []QueryType{
+					{
+						Query: `{ allUsers { name } }`,
+						Type:  `{ data: { __typename: "Query"; allUsers: ({ __typename: "User"; name: string; })[]; }; variables: { }; }`,
+					},
 				},
 			},
 		},
