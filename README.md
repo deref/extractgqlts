@@ -57,9 +57,24 @@ extractgqlts \
   > ./src/graphql/types.generated.ts
 ```
 
-If it's not immediately clear how to use the generated output, read the "Design
-Constraints and Implementation Notes" below. If it's still not clear, please
-open an issue.
+The generated output contains a mapped type called `QueryTypes`. This maps
+query strings to `{ data, variables }` structures for use in whatever driver
+functions you supply yourself. For a simple example:
+
+```typescript
+import { QueryTypes } from './types.generated.ts';
+
+const query = <TQuery extends keyof QueryTypes>(
+  query: TQuery,
+  variables: QueryTypes[TQuery]['variables'],
+): Promise<QueryTypes[TQuery]['data']> => {
+  // ...
+}
+```
+
+A more complete example can be found in [this
+gist](https://gist.github.com/brandonbloom/0b2373f43d4c11f83bde3dcb61974622)
+extracted from a Svelte project.
 
 If you have custom scalars, you'll also need `./src/graphql/scalars.ts`.
 
@@ -87,20 +102,7 @@ Does not assume React, Apollo, or anything else.
 This means you must provide your own entrypoint to the generated types that
 indexes the `QueryTypes` map.
 
-As a simplified example:
-
-```typescript
-import { QueryTypes } from './types.generated.ts';
-
-const query = <TQuery extends keyof QueryTypes>(
-  query: TQuery,
-  variables: QueryTypes[TQuery]['variables'],
-): Promise<QueryTypes[TQuery]['data']> => {
-  // ...
-}
-```
-
-### Convention over Configuration
+### Convention Over Configuration
 
 The assumption is that you will have one module directory that will contain
 three code files:
