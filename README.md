@@ -9,8 +9,8 @@ Additionally, strong conventions make it uncomplicated to use.
 
 **EXPERIMENTAL**
 
-This is extremely unlike to work for you out of the box. It is being integrated
-into a real product now, so that situation will slowly improve.
+You are likely to encounter problems using this. However, it being exercised
+by an in-development product now, so that situation will improve.
 
 Feedback and/or contributions welcome.
 
