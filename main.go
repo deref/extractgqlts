@@ -127,7 +127,11 @@ func (g *generator) visitInput(inputPath string) {
 		return
 	}
 	for _, query := range queries {
-		if _, err := g.typer.VisitString(inputPath, query); err != nil {
+		_, warnings, err := g.typer.VisitString(inputPath, query)
+		for _, warning := range warnings {
+			g.warnf("warning: %v", warning)
+		}
+		if err != nil {
 			g.warnf("error: %v", err)
 		}
 	}

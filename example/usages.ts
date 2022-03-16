@@ -16,8 +16,15 @@ const namedFragment = `#graphql
   }
 `;
 
-const badFragment = `#graphql
-  { no_close_bracket_after_this
+const undefinedField = `#graphql
+  {
+    notARealField
+  }
 `;
+
+// TODO: Test error recovery.
+//const badFragment = `#graphql
+//  { no_close_bracket_after_this
+//`;
 
 // TODO: subscription

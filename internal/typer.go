@@ -105,49 +105,58 @@ type QueryType struct {
 	Type  string
 }
 
-func (t *Typer) loadQuery(filename, gql string) (*ast.QueryDocument, error) {
-	doc, err := parser.ParseQuery(&ast.Source{
+func (t *Typer) loadQuery(filename, gql string) (doc *ast.QueryDocument, warnings []error, err error) {
+	var gqlErr *gqlerror.Error
+	doc, gqlErr = parser.ParseQuery(&ast.Source{
 		Name:  filename,
 		Input: gql,
 	})
-	if err != nil {
-		return nil, err
+	if gqlErr != nil {
+		err = gqlErr
+		return
 	}
 
-	errs := filterErrors(validator.Validate(t.Schema, doc))
+	var errs gqlerror.List
+	warnings, errs = t.extractWarnings(validator.Validate(t.Schema, doc))
 	if len(errs) > 0 {
-		return nil, errs
+		return doc, warnings, errs
 	}
-	return doc, nil
+	return doc, warnings, nil
 }
 
-func filterErrors(errs gqlerror.List) gqlerror.List {
-	dst := 0
-	for i := 0; i < len(errs); i++ {
-		err := errs[i]
-		if ignoreError(err) {
-			continue
+func (t *Typer) extractWarnings(diags gqlerror.List) (warnings []error, errs gqlerror.List) {
+	warnings = make([]error, 0, len(diags))
+	errs = make(gqlerror.List, 0, len(diags))
+	for _, diag := range diags {
+		switch classifyDiagnostic(diag) {
+		case "fail":
+			errs = append(errs, diag)
+		case "warn":
+			warnings = append(warnings, diag)
+		case "ignore":
+			// No-op.
 		}
-		errs[dst] = err
-		dst++
 	}
-	errs = errs[:dst]
-	return errs
+	return
 }
 
-func ignoreError(err error) bool {
-	switch {
-	case strings.HasSuffix(err.Error(), "is never used."):
-		return true
-	default:
-		return false
+func classifyDiagnostic(err error) string {
+	if _, ok := err.(*gqlerror.Error); ok {
+		message := err.Error()
+		if strings.HasSuffix(message, "is never used.") {
+			return "ignore"
+		}
+		if strings.Contains(message, "Cannot query field") {
+			return "warn"
+		}
 	}
+	return "fail"
 }
 
 // Returns a TypeScript type as a string.
 // On error, that type will be "unknown" with a comment.
-func (t *Typer) VisitString(filename, gql string) (string, error) {
-	doc, err := t.loadQuery(filename, gql)
+func (t *Typer) VisitString(filename, gql string) (res string, warnings []error, err error) {
+	doc, warnings, err := t.loadQuery(filename, gql)
 	var typ string
 	if err == nil {
 		typ, err = t.visitDocument(doc)
@@ -160,7 +169,7 @@ func (t *Typer) VisitString(filename, gql string) (string, error) {
 	} else {
 		typ = fmt.Sprintf("unknown /* ERROR: %v */", err)
 	}
-	return typ, err
+	return typ, warnings, err
 }
 
 func (t *Typer) visitDocument(doc *ast.QueryDocument) (string, error) {
@@ -427,7 +436,9 @@ func (t *Typer) visitField(node *ast.Field) {
 		alias = node.Name
 	}
 	var fieldType string
-	if node.SelectionSet == nil {
+	if def == nil {
+		fieldType = "unknown"
+	} else if node.SelectionSet == nil {
 		fieldType = t.visitType(def.Type)
 	} else {
 		leafName, endType := t.beginType(def.Type)

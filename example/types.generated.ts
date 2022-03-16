@@ -9,4 +9,5 @@ export type QueryTypes = {
   "#graphql\n  {\n    hello\n  }\n": { data: { __typename: "Query"; hello: string | null; }; variables: { }; };
   "#graphql\n  {\n    now\n  }\n": { data: { __typename: "Query"; now: Instant; }; variables: { }; };
   "#graphql\n  fragment Profile on Named {\n    name\n  }\n": { data: Fragment_Profile_Data; variables: Fragment_Profile_Variables; };
+  "#graphql\n  {\n    notARealField\n  }\n": { data: { __typename: "Query"; notARealField: unknown; }; variables: { }; };
 }

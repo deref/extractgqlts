@@ -196,7 +196,8 @@ fragment Named on Named { name }
 			Schema: schema,
 		}
 		filename := ""
-		actualRoot, err := typer.VisitString(filename, test.Input)
+		actualRoot, warnings, err := typer.VisitString(filename, test.Input)
+		assert.Empty(t, warnings) // TODO: Test warnings.
 		if test.ExpectError {
 			assert.Error(t, err)
 		} else if !assert.NoError(t, err, "input: %s", test.Input) {
