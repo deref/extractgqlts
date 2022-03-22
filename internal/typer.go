@@ -429,12 +429,15 @@ func (t *Typer) visitSelection(node ast.Selection) {
 }
 
 func (t *Typer) visitField(node *ast.Field) {
-	t.visitArgumentList(node.Arguments)
 	def := node.Definition
 	alias := node.Alias
 	if alias == "" {
 		alias = node.Name
 	}
+	if alias == "__typename" {
+		return
+	}
+	t.visitArgumentList(node.Arguments)
 	var fieldType string
 	if def == nil {
 		fieldType = "unknown"

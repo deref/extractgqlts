@@ -203,6 +203,19 @@ fragment Named on Named { name }
 			ExpectedRoot: `unknown /* ERROR: input:1: Expected Name, found <EOF> */`,
 			ExpectError:  true,
 		},
+		// Explicit __typename selection.
+		{
+			Input:        `{ currentUser { __typename } }`,
+			ExpectedRoot: `{ data: { __typename: "Query"; currentUser: (({ __typename: "User"; }) | null); }; variables: { }; }`,
+			ExpectedDeclarations: GeneratedTypes{
+				QueryMap: []QueryType{
+					{
+						Query: `{ currentUser { __typename } }`,
+						Type:  `{ data: { __typename: "Query"; currentUser: (({ __typename: "User"; }) | null); }; variables: { }; }`,
+					},
+				},
+			},
+		},
 		// TODO: Mutations & Subscriptions.
 	}
 	for _, test := range tests {
