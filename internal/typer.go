@@ -464,27 +464,26 @@ func (t *Typer) beginType(typ *ast.Type) (leafName string, end func(unwrapped st
 	}
 	leafName = typ.NamedType
 	end = func(unwrapped string) (wrapped string) {
-		needsParens := strings.Contains(unwrapped, " ")
 		var b strings.Builder
 		for _, wrapper := range stack {
-			if needsParens && !wrapper.NonNull || wrapper.Elem != nil {
+			if !wrapper.NonNull {
 				b.WriteString("(")
 			}
 		}
-		b.WriteString(unwrapped)
+		if strings.Contains(unwrapped, " ") {
+			b.WriteString("(")
+			b.WriteString(unwrapped)
+			b.WriteString(")")
+		} else {
+			b.WriteString(unwrapped)
+		}
 		for i := len(stack) - 1; i >= 0; i-- {
 			wrapper := stack[i]
-			if needsParens {
-				if !wrapper.NonNull || wrapper.Elem != nil {
-					b.WriteString(")")
-				}
-				if wrapper.Elem != nil {
-					b.WriteString("[]")
-				}
+			if wrapper.Elem != nil {
+				b.WriteString("[]")
 			}
 			if !wrapper.NonNull {
-				b.WriteString(" | null")
-				needsParens = true
+				b.WriteString(" | null)")
 			}
 		}
 		return b.String()

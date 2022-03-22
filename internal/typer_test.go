@@ -26,6 +26,7 @@ func TestTyper(t *testing.T) {
 				status: Status
 
 				concatAll(stringLists: [[String]]): String!
+				sum(ints: [Int!]): Int!
 			}
 
 			scalar Instant
@@ -88,7 +89,7 @@ func TestTyper(t *testing.T) {
 					},
 				},
 				Declarations: []string{
-					`export type Query_GetUser_Data = { __typename: "Query"; user: ({ __typename: "User"; bio: string | null; name: string; }) | null; };`,
+					`export type Query_GetUser_Data = { __typename: "Query"; user: (({ __typename: "User"; bio: (string | null); name: string; }) | null); };`,
 					`export type Query_GetUser_Variables = { userId: string; };`,
 				},
 			},
@@ -118,7 +119,7 @@ func TestTyper(t *testing.T) {
 					},
 				},
 				Declarations: []string{
-					`export type Fragment_User_Data = { __typename: "User"; name: string; profile: string | null; };`,
+					`export type Fragment_User_Data = { __typename: "User"; name: string; profile: (string | null); };`,
 					`export type Fragment_User_Variables = { };`,
 				},
 			},
@@ -165,7 +166,7 @@ fragment Named on Named { name }
 					`export type Fragment_Named_Variables = { };`,
 					// TODO: Is it possible to enhance the algorith to simplify this?
 					// Is it worth it? TypeScript should handle that for us.
-					`export type Query_Fred_Data = { __typename: "Query"; named: { __typename: "Pet"; species: string; } & Fragment_Named_Data | { __typename: "Pet" | "User"; species: string; } & Fragment_Named_Data; };`,
+					`export type Query_Fred_Data = { __typename: "Query"; named: ({ __typename: "Pet"; species: string; } & Fragment_Named_Data | { __typename: "Pet" | "User"; species: string; } & Fragment_Named_Data); };`,
 					`export type Query_Fred_Variables = { };`,
 				},
 			},
@@ -173,12 +174,25 @@ fragment Named on Named { name }
 		// Nested lists with nullability.
 		{
 			Input:        `query ($stringLists: [[String]]) { concatAll(stringLists: $stringLists) }`,
-			ExpectedRoot: `{ data: { __typename: "Query"; concatAll: string; }; variables: { stringLists: ((string | null)[] | null)[] | null; }; }`,
+			ExpectedRoot: `{ data: { __typename: "Query"; concatAll: string; }; variables: { stringLists: (((string | null)[] | null)[] | null); }; }`,
 			ExpectedDeclarations: GeneratedTypes{
 				QueryMap: []QueryType{
 					{
 						Query: `query ($stringLists: [[String]]) { concatAll(stringLists: $stringLists) }`,
-						Type:  `{ data: { __typename: "Query"; concatAll: string; }; variables: { stringLists: ((string | null)[] | null)[] | null; }; }`,
+						Type:  `{ data: { __typename: "Query"; concatAll: string; }; variables: { stringLists: (((string | null)[] | null)[] | null); }; }`,
+					},
+				},
+			},
+		},
+		// Nullable list with non-null elements.
+		{
+			Input:        `query ($ints: [Int!]) { sum(ints: $ints) }`,
+			ExpectedRoot: `{ data: { __typename: "Query"; sum: number; }; variables: { ints: (number[] | null); }; }`,
+			ExpectedDeclarations: GeneratedTypes{
+				QueryMap: []QueryType{
+					{
+						Query: `query ($ints: [Int!]) { sum(ints: $ints) }`,
+						Type:  `{ data: { __typename: "Query"; sum: number; }; variables: { ints: (number[] | null); }; }`,
 					},
 				},
 			},
