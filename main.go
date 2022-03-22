@@ -69,7 +69,7 @@ func (g *generator) run() error {
 
 	generated := g.typer.GeneratedTypes
 	if len(generated.Scalars) > 0 {
-		fmt.Print(`import {`)
+		fmt.Print(`import type {`)
 		for _, scalar := range generated.Scalars {
 			fmt.Print(" ")
 			fmt.Print(scalar)
