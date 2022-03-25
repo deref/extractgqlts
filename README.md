@@ -7,10 +7,10 @@ Additionally, strong conventions make it uncomplicated to use.
 
 ## Status
 
-**EXPERIMENTAL**
+**STABILIZING**
 
-You are likely to encounter problems using this. However, it being exercised
-by an in-development product now, so that situation will improve.
+You are likely to encounter small problems using this. However, it being used
+successfully by an in-development product now, so it does indeed work.
 
 Feedback and/or contributions welcome.
 
